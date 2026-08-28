@@ -5,6 +5,11 @@ export function Toolbar() {
   const loadFile = useSchemaStore((state) => state.loadFile);
   const openViaDialog = useSchemaStore((state) => state.openViaDialog);
   const isLoading = useSchemaStore((state) => state.isLoading);
+  const save = useSchemaStore((state) => state.save);
+  const isSaving = useSchemaStore((state) => state.isSaving);
+  const isDirty = useSchemaStore((state) => state.isDirty);
+  const saveError = useSchemaStore((state) => state.saveError);
+  const hasDocument = useSchemaStore((state) => state.originalDocuments.length > 0);
   const undo = useSchemaStore((state) => state.undo);
   const redo = useSchemaStore((state) => state.redo);
   const canUndo = useSchemaStore((state) => state.undoStack.length > 0);
@@ -15,17 +20,19 @@ export function Toolbar() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const meta = event.ctrlKey || event.metaKey;
-      if (!meta || event.key.toLowerCase() !== "z") return;
-      event.preventDefault();
-      if (event.shiftKey) {
-        redo();
-      } else {
-        undo();
+      if (!meta) return;
+      if (event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void save();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, save]);
 
   return (
     <header className="toolbar">
@@ -49,10 +56,18 @@ export function Toolbar() {
         >
           {isLoading ? "로딩 중..." : "Open XSD"}
         </button>
-        <button type="button" disabled title="Phase 4에서 연결">Save</button>
+        <button
+          type="button"
+          disabled={!hasDocument || isSaving}
+          onClick={() => void save()}
+          title={hasElectronApi ? "Ctrl+S (원본 파일에 덮어쓰기)" : "Ctrl+S (다운로드)"}
+        >
+          {isSaving ? "저장 중..." : isDirty ? "Save*" : "Save"}
+        </button>
         <button type="button" disabled={!canUndo} onClick={undo} title="Ctrl+Z">Undo</button>
         <button type="button" disabled={!canRedo} onClick={redo} title="Ctrl+Shift+Z">Redo</button>
         <button type="button" disabled title="Phase 5에서 연결">Generate Code</button>
+        {saveError && <span className="toolbar__error">저장 실패: {saveError}</span>}
       </div>
     </header>
   );

@@ -11,3 +11,5 @@ export * from "./commands/command.js";
 export * from "./commands/setFieldCommand.js";
 export * from "./commands/structuralCommands.js";
 export * from "./validation/validate.js";
+export * from "./serializer/xsdWriter.js";
+export * from "./serializer/domSerialize.js";

@@ -9,6 +9,7 @@ export interface XsdFileApi {
   openXsdDialog(): Promise<{ canceled: true } | { canceled: false; filePath: string }>;
   readTextFile(filePath: string): Promise<string>;
   resolveImportPath(fromFilePath: string, href: string): Promise<string>;
+  writeTextFile(filePath: string, contents: string): Promise<void>;
 }
 
 declare global {

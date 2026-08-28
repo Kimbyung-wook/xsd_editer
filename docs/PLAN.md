@@ -68,7 +68,7 @@ xsd-visualizer/
 2. **Phase 1 (MVP)**: 단일 파일 XSD 파싱(Web Worker에서 실행) → 읽기 전용 트리뷰(react-arborist 가상화) + 읽기 전용 속성 표시. 검수 기준: `large-schema.xsd` 로드 시 초기 렌더링이 화면 노드 수에 비례해 체감 지연 없이 완료되는지 측정. **(완료 — 실측: 8.00MB/163,543줄 합성 픽스처 기준 파싱 137,713개 노드에 약 2.6초, 힙 메모리 증가분 약 83MB, RSS 약 388MB. Worker에서 실행되어 파싱 중에도 UI가 멈추지 않고 "파싱 중..." 상태를 표시하며, react-arborist 가상화로 8,600여 개 최상위 타입에서도 스크롤이 즉각적임을 브라우저로 확인. 지연 로딩은 파싱 자체는 Worker에서 전체를 한 번에 수행하고 렌더링만 가상화하는 방식으로 단순화 — 2.6초가 병목으로 확인되면 Phase 6에서 증분/스트리밍 파싱 재검토.)**
 3. **Phase 2**: 다중 파일(import/include) 지원, resolver로 의존성 그래프 구축(증분 재계산 기본 설계), 참조 그래프 UI(React Flow, 기본 포커스 모드) + 트리↔그래프 동기화. 검수 기준: `large-schema.xsd`에서 포커스 모드 그래프 탐색이 매끄러운지 측정. **(완료 — Electron IPC로 실제 xs:import/xs:include 다중 파일 로딩 구현(브라우저 탭에서는 단일 파일로 폴백), resolver 모듈로 참조/역참조 그래프 구축, React Flow 포커스 모드 그래프 + 트리↔그래프 양방향 선택 동기화를 브라우저로 실제 확인.)**
 4. **Phase 3**: Command/undo-redo 인프라, 트리 편집(rename/추가/삭제/이동), 속성 패널 전체 필드 편집, facet 편집기, 검증. 검수 기준: `large-schema.xsd`에서 필드 하나 수정 시 UI 반응 지연 측정. **(완료 — validateModel(24ms)/buildDependencyGraph(32ms)가 137,713개 노드 기준으로도 충분히 빨라 "전체 재검증"으로 확정(증분 검증 불필요, 계획 대비 단순화). Command 기반 undo/redo, 속성 패널 전체 필드 편집(텍스트/체크박스/occurs/타입 재연결/facet 편집기), 트리 인라인 rename, 우클릭 요소·속성 추가/삭제를 브라우저로 실제 확인. 검증 중 `SchemaModel.updateNode/removeNode`가 QName 인덱스를 갱신하지 않는 버그를 발견해 수정(회귀 테스트 추가) — 이름 변경/삭제 후 참조 해석이 정확해짐. 최상위 선언(문서 직속 element/complexType 등) 추가/삭제는 이번 범위에서 제외.)**
-5. **Phase 4**: DOM 패치 기반 직렬화기, 라운드트립 신뢰성 회귀 테스트(파싱→편집→직렬화→diff), Save/Export 연동.
+5. **Phase 4**: DOM 패치 기반 직렬화기, 라운드트립 신뢰성 회귀 테스트(파싱→편집→직렬화→diff), Save/Export 연동. **(완료 — `serializer/`(domPatcher, domSynth, qnameSerializer, xsdWriter) 구현. 원본 파일을 매 저장 시 새로 파싱해 `sourceRef.path`로 위치를 찾고, 구조가 바뀐 컨테이너만 재생성(변경 없는 영역은 주석/들여쓰기까지 그대로 보존)하는 방식. 라운드트립 회귀 테스트 10개(무편집 보존, rename, facet 편집, 타입 재연결, 요소/속성 추가·삭제, 실제 fixture 파일의 extension/choice/group ref 보존) 전부 통과. 검증 중 "구조 미변경 시 개별 필드 패치까지 통째로 건너뛰는" 버그를 발견해 수정. Electron에 파일쓰기 IPC(`writeTextFile`) 추가, Save를 Web Worker로 라우팅해 UI 스레드 비차단, 브라우저 탭 폴백은 다운로드로 처리. 8MB/137,713개 노드 기준 저장(재파싱+패치+직렬화) 약 576ms로 충분히 빠름. 알려진 제약: 한 태그 내부의 속성 줄바꿈/공백은 DOM 정보모델 특성상 보존 안 됨(서식만의 차이, 데이터 손실 아님), 최상위 선언 추가/삭제는 Phase 3와 마찬가지로 범위 밖.)**
 6. **Phase 5**: 코드생성 플러그인 인터페이스+레지스트리+IR, C/C++ 생성기, Python 생성기, 코드생성 다이얼로그 UI. 검수 기준: 생성된 C 코드는 CI에서 실제 컴파일, Python 코드는 실제 import 검증.
 7. **Phase 6**: 고급 XSD 구성(xs:any, mixed content, union/list) 처리, Phase 1~3에서 확보한 성능 기준선을 넘는 초대형 스키마 대응 추가 튜닝, 패키징(electron-builder), 선택적으로 headless CLI 추가.
 
@@ -85,7 +85,7 @@ xsd-visualizer/
 ## 주요 리스크
 
 - **XSD 스펙 복잡도**: substitution group, abstract, wildcard(xs:any), mixed content, xs:redefine 등 전부 동일 수준으로 지원하기 어려움 → v1에서 "완전 편집 지원" 대상과 "보존만 하고 읽기전용" 대상을 명시적으로 구분해 UI에 표시.
-- **라운드트립 신뢰성**: 전체 재생성 방식은 주석/포맷을 잃음 → DOM 부분 패치 전략을 채택하되, diff 기반 회귀 테스트로 신뢰성을 측정 가능한 지표로 관리.
+- **라운드트립 신뢰성**: 전체 재생성 방식은 주석/포맷을 잃음 → DOM 부분 패치 전략을 채택하되, diff 기반 회귀 테스트로 신뢰성을 측정 가능한 지표로 관리. **(Phase 4에서 구현/실측)** 편집되지 않은 영역은 주석·들여쓰기가 그대로 보존됨을 회귀 테스트로 확인. 단, DOM의 정보 모델 특성상 **하나의 태그 내부의 속성 줄바꿈/공백은 보존되지 않음**(예: 여러 줄에 걸쳐 쓰인 `<xs:schema xmlns:xs="..."\n  xmlns:tns="...">` 는 저장 후 한 줄로 합쳐짐) — 이는 데이터 손실이 아니라 서식만의 차이이며, xmldom 등 DOM 파서의 공통적인 한계로 받아들이기로 함. `xs:any`(wildcard)처럼 모델링하지 않은 구성이 구조 편집된 compositor 안에 섞여 있으면 상대적 순서가 바뀔 수 있음(별도 처리 없이 허용).
 - **C/C++ 코드 생성의 정합성**: 임의의 XSD 구조가 항상 깔끔한 struct로 매핑되지 않음(재귀 타입, 가변 길이 등) → 초기 지원 범위를 문서화하고, 지원 불가 구성은 `validateModelSupport()` 경고로 표시, CI에서 실제 컴파일 검증.
 - **대형 스키마 성능**: 수천 개 노드 스키마에서 트리/그래프가 느려질 수 있음 → 가상화 트리, 그래프 "포커스 모드", 증분 재계산 설계를 초기 단계부터 반영.
 

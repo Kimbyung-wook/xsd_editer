@@ -85,6 +85,13 @@ body {
   display: none;
 }
 
+.toolbar__error {
+  color: #c0392b;
+  font-size: 0.8rem;
+  margin-left: 0.5rem;
+  align-self: center;
+}
+
 .tree-row {
   display: flex;
   align-items: center;

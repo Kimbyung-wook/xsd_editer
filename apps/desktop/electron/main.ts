@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { IPC_OPEN_XSD_DIALOG, IPC_READ_TEXT_FILE, IPC_RESOLVE_IMPORT_PATH } from "./ipcChannels.js";
+import { IPC_OPEN_XSD_DIALOG, IPC_READ_TEXT_FILE, IPC_RESOLVE_IMPORT_PATH, IPC_WRITE_TEXT_FILE } from "./ipcChannels.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +43,10 @@ ipcMain.handle(IPC_READ_TEXT_FILE, async (_event, filePath: string) => {
 
 ipcMain.handle(IPC_RESOLVE_IMPORT_PATH, (_event, fromFilePath: string, href: string) => {
   return path.resolve(path.dirname(fromFilePath), href);
+});
+
+ipcMain.handle(IPC_WRITE_TEXT_FILE, async (_event, filePath: string, contents: string) => {
+  await writeFile(filePath, contents, "utf-8");
 });
 
 app.whenReady().then(() => {
