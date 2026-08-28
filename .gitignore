@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+coverage/
+packages/core/fixtures/large-schema.xsd
