@@ -1,18 +1,29 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC_OPEN_XSD_DIALOG, IPC_READ_TEXT_FILE, IPC_RESOLVE_IMPORT_PATH, IPC_WRITE_TEXT_FILE } from "./ipcChannels.js";
+import {
+  IPC_JOIN_PATH,
+  IPC_OPEN_DIRECTORY_DIALOG,
+  IPC_OPEN_XSD_DIALOG,
+  IPC_READ_TEXT_FILE,
+  IPC_RESOLVE_IMPORT_PATH,
+  IPC_WRITE_TEXT_FILE
+} from "./ipcChannels.js";
 
 export interface XsdFileApi {
   openXsdDialog(): Promise<{ canceled: true } | { canceled: false; filePath: string }>;
   readTextFile(filePath: string): Promise<string>;
   resolveImportPath(fromFilePath: string, href: string): Promise<string>;
   writeTextFile(filePath: string, contents: string): Promise<void>;
+  openDirectoryDialog(): Promise<{ canceled: true } | { canceled: false; dirPath: string }>;
+  joinPath(dirPath: string, fileName: string): Promise<string>;
 }
 
 const api: XsdFileApi = {
   openXsdDialog: () => ipcRenderer.invoke(IPC_OPEN_XSD_DIALOG),
   readTextFile: (filePath) => ipcRenderer.invoke(IPC_READ_TEXT_FILE, filePath),
   resolveImportPath: (fromFilePath, href) => ipcRenderer.invoke(IPC_RESOLVE_IMPORT_PATH, fromFilePath, href),
-  writeTextFile: (filePath, contents) => ipcRenderer.invoke(IPC_WRITE_TEXT_FILE, filePath, contents)
+  writeTextFile: (filePath, contents) => ipcRenderer.invoke(IPC_WRITE_TEXT_FILE, filePath, contents),
+  openDirectoryDialog: () => ipcRenderer.invoke(IPC_OPEN_DIRECTORY_DIALOG),
+  joinPath: (dirPath, fileName) => ipcRenderer.invoke(IPC_JOIN_PATH, dirPath, fileName)
 };
 
 /**

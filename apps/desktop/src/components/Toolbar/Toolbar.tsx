@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSchemaStore } from "../../state/schemaStore.js";
+import { CodegenDialog } from "../CodegenDialog/CodegenDialog.js";
 
 export function Toolbar() {
+  const [isCodegenOpen, setIsCodegenOpen] = useState(false);
   const loadFile = useSchemaStore((state) => state.loadFile);
   const openViaDialog = useSchemaStore((state) => state.openViaDialog);
   const isLoading = useSchemaStore((state) => state.isLoading);
@@ -66,9 +68,10 @@ export function Toolbar() {
         </button>
         <button type="button" disabled={!canUndo} onClick={undo} title="Ctrl+Z">Undo</button>
         <button type="button" disabled={!canRedo} onClick={redo} title="Ctrl+Shift+Z">Redo</button>
-        <button type="button" disabled title="Phase 5에서 연결">Generate Code</button>
+        <button type="button" disabled={!hasDocument} onClick={() => setIsCodegenOpen(true)}>Generate Code</button>
         {saveError && <span className="toolbar__error">저장 실패: {saveError}</span>}
       </div>
+      <CodegenDialog open={isCodegenOpen} onClose={() => setIsCodegenOpen(false)} />
     </header>
   );
 }

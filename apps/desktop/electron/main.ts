@@ -2,7 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { IPC_OPEN_XSD_DIALOG, IPC_READ_TEXT_FILE, IPC_RESOLVE_IMPORT_PATH, IPC_WRITE_TEXT_FILE } from "./ipcChannels.js";
+import {
+  IPC_JOIN_PATH,
+  IPC_OPEN_DIRECTORY_DIALOG,
+  IPC_OPEN_XSD_DIALOG,
+  IPC_READ_TEXT_FILE,
+  IPC_RESOLVE_IMPORT_PATH,
+  IPC_WRITE_TEXT_FILE
+} from "./ipcChannels.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +54,18 @@ ipcMain.handle(IPC_RESOLVE_IMPORT_PATH, (_event, fromFilePath: string, href: str
 
 ipcMain.handle(IPC_WRITE_TEXT_FILE, async (_event, filePath: string, contents: string) => {
   await writeFile(filePath, contents, "utf-8");
+});
+
+ipcMain.handle(IPC_OPEN_DIRECTORY_DIALOG, async () => {
+  const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true as const };
+  }
+  return { canceled: false as const, dirPath: result.filePaths[0] };
+});
+
+ipcMain.handle(IPC_JOIN_PATH, (_event, dirPath: string, fileName: string) => {
+  return path.join(dirPath, fileName);
 });
 
 app.whenReady().then(() => {

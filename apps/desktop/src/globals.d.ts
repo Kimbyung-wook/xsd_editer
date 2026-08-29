@@ -10,6 +10,8 @@ export interface XsdFileApi {
   readTextFile(filePath: string): Promise<string>;
   resolveImportPath(fromFilePath: string, href: string): Promise<string>;
   writeTextFile(filePath: string, contents: string): Promise<void>;
+  openDirectoryDialog(): Promise<{ canceled: true } | { canceled: false; dirPath: string }>;
+  joinPath(dirPath: string, fileName: string): Promise<string>;
 }
 
 declare global {
