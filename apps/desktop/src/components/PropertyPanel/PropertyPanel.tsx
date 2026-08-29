@@ -4,6 +4,7 @@ import { ElementForm } from "./forms/ElementForm.js";
 import { ComplexTypeForm } from "./forms/ComplexTypeForm.js";
 import { SimpleTypeForm } from "./forms/SimpleTypeForm.js";
 import { AttributeForm } from "./forms/AttributeForm.js";
+import { AnyForm } from "./forms/AnyForm.js";
 import { TextField } from "./forms/fields.js";
 
 /** Editable property inspector (Phase 3) — one form per node kind, dispatching SetFieldCommand. */
@@ -23,6 +24,7 @@ export function PropertyPanel() {
         {node?.kind === "complexType" && <ComplexTypeForm node={node} />}
         {node?.kind === "simpleType" && <SimpleTypeForm node={node} model={model} />}
         {node?.kind === "attribute" && <AttributeForm node={node} model={model} />}
+        {node?.kind === "any" && <AnyForm node={node} />}
         {node?.kind === "group" && (
           <div className="property-form">
             <TextField

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadSchemaFromString } from "../../src/parser/xsdLoader.js";
 import type {
+  AnyNode,
   AttributeDecl,
   ComplexTypeDecl,
   CompositorNode,
@@ -191,5 +192,79 @@ describe("loadSchemaFromString", () => {
     const el = byName<ElementDecl>(model, "Root");
     expect(el.sourceRef?.fileId).toBe("f1");
     expect(el.sourceRef?.path.length).toBeGreaterThan(0);
+  });
+
+  it("parses a xs:any wildcard particle inside a compositor", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+        <xs:complexType name="Extensible">
+          <xs:sequence>
+            <xs:element name="known" type="xs:string"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "any.xsd");
+    const type = byName<ComplexTypeDecl>(model, "Extensible");
+    const sequence = model.getNode(type.contentModelId!) as CompositorNode;
+    expect(sequence.particleIds).toHaveLength(2);
+    const wildcard = model.getNode(sequence.particleIds[1]) as AnyNode;
+    expect(wildcard.kind).toBe("any");
+    expect(wildcard.namespace).toBe("##other");
+    expect(wildcard.processContents).toBe("lax");
+    expect(wildcard.minOccurs).toBe(0);
+    expect(wildcard.maxOccurs).toBe("unbounded");
+  });
+
+  it("defaults xs:any processContents to strict when unspecified", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+        <xs:complexType name="Plain">
+          <xs:sequence>
+            <xs:any/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "any2.xsd");
+    const type = byName<ComplexTypeDecl>(model, "Plain");
+    const sequence = model.getNode(type.contentModelId!) as CompositorNode;
+    const wildcard = model.getNode(sequence.particleIds[0]) as AnyNode;
+    expect(wildcard.processContents).toBe("strict");
+    expect(wildcard.namespace).toBeNull();
+  });
+
+  it("parses a xs:list simpleType's itemType", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+        <xs:simpleType name="IntList">
+          <xs:list itemType="xs:int"/>
+        </xs:simpleType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "list.xsd");
+    const listType = byName<SimpleTypeDecl>(model, "IntList");
+    expect(listType.variant).toBe("list");
+    expect(listType.itemTypeRef?.qname).toEqual({ namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "int" });
+    expect(listType.baseRef).toBeNull();
+  });
+
+  it("parses a xs:union simpleType's memberTypes", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                 xmlns:tns="urn:example"
+                 targetNamespace="urn:example">
+        <xs:simpleType name="Named">
+          <xs:restriction base="xs:string"><xs:enumeration value="x"/></xs:restriction>
+        </xs:simpleType>
+        <xs:simpleType name="IntOrNamed">
+          <xs:union memberTypes="xs:int tns:Named"/>
+        </xs:simpleType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "union.xsd");
+    const unionType = byName<SimpleTypeDecl>(model, "IntOrNamed");
+    expect(unionType.variant).toBe("union");
+    expect(unionType.memberTypeRefs.map((r) => r.qname)).toEqual([
+      { namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "int" },
+      { namespaceURI: "urn:example", localName: "Named" }
+    ]);
   });
 });

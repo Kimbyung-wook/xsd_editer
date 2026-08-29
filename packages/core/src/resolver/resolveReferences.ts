@@ -55,7 +55,17 @@ export function buildDependencyGraph(model: SchemaModel): DependencyGraph {
         break;
       }
       case "simpleType": {
-        if (node.baseRef) {
+        if (node.variant === "list") {
+          if (node.itemTypeRef) {
+            const target = model.findByQName("simpleType", node.itemTypeRef.qname);
+            if (target) graph.addEdge({ from: node.id, to: target, kind: "referencesType" });
+          }
+        } else if (node.variant === "union") {
+          for (const ref of node.memberTypeRefs) {
+            const target = model.findByQName("simpleType", ref.qname);
+            if (target) graph.addEdge({ from: node.id, to: target, kind: "referencesType" });
+          }
+        } else if (node.baseRef) {
           const target = model.findByQName("simpleType", node.baseRef.qname);
           if (target) graph.addEdge({ from: node.id, to: target, kind: "restricts" });
         }

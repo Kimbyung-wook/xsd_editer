@@ -1,6 +1,8 @@
 {
   "name": "@xsd-visualizer/desktop",
   "version": "0.0.0",
+  "description": "XSD 시각화/편집 도구 — 트리 뷰, 참조 그래프, C/C++·Python 코드 생성을 지원하는 Electron 데스크톱 앱",
+  "author": "XSD Visualizer",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -10,7 +12,24 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "lint": "echo \"(lint not configured yet)\"",
-    "start": "electron ."
+    "start": "electron .",
+    "package": "npm run build && electron-builder",
+    "package:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.xsdvisualizer.app",
+    "productName": "XSD Visualizer",
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "@xsd-visualizer/core": "workspace:*",
@@ -25,6 +44,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vitest": "^2.1.4"

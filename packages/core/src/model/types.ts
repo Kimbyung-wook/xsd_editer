@@ -80,6 +80,16 @@ export interface GroupRefNode extends BaseNode {
   maxOccurs: OccursBound;
 }
 
+/** `<xs:any>` wildcard particle — matches any element (constrained by `namespace`), not modeled beyond its own attributes. */
+export interface AnyNode extends BaseNode {
+  kind: "any";
+  /** Raw `namespace` attribute value (e.g. "##any", "##other", "##local", "##targetNamespace", or a space-separated URI list); null means the XSD default "##any". */
+  namespace: string | null;
+  processContents: "strict" | "lax" | "skip";
+  minOccurs: number;
+  maxOccurs: OccursBound;
+}
+
 export interface ComplexTypeDerivation {
   kind: "extension" | "restriction";
   baseRef: QNameRef;
@@ -108,10 +118,17 @@ export interface Facets {
   whiteSpace?: "preserve" | "replace" | "collapse";
 }
 
+export type SimpleTypeVariant = "restriction" | "list" | "union";
+
 export interface SimpleTypeDecl extends BaseNode {
   kind: "simpleType";
-  /** Restriction base; null for union/list-derived simple types (not yet modeled, see Phase 6 risk notes). */
+  variant: SimpleTypeVariant;
+  /** Restriction base; set only when variant === "restriction". */
   baseRef: QNameRef | null;
+  /** `xs:list` itemType; set only when variant === "list". An inline (anonymous) item simpleType is not modeled. */
+  itemTypeRef: QNameRef | null;
+  /** `xs:union` memberTypes; set only when variant === "union". Inline (anonymous) member simpleTypes are not modeled. */
+  memberTypeRefs: QNameRef[];
   facets: Facets;
 }
 
@@ -142,6 +159,7 @@ export type SchemaNode =
   | ElementRefNode
   | CompositorNode
   | GroupRefNode
+  | AnyNode
   | ComplexTypeDecl
   | SimpleTypeDecl
   | GroupDecl

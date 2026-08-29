@@ -15,11 +15,8 @@ import { applyAttributeAttributes, applyElementAttributes, synthesizeAttribute, 
 import { createPrefixAllocator, serializeQName, type PrefixAllocator } from "./qnameSerializer.js";
 
 const COMPOSITOR_LOCAL_NAMES = new Set(["sequence", "choice", "all"]);
-/** `xs:any` (wildcard) is deliberately excluded — it isn't modeled (see docs/PLAN.md risk notes),
- * so it's left untouched wherever it sits rather than reconciled against the model's particle list.
- * Structurally editing a compositor that mixes modeled particles with `xs:any` can therefore
- * change their relative order — a disclosed, accepted limitation for this unmodeled construct. */
-const PARTICLE_LOCAL_NAMES = new Set(["element", "group", ...COMPOSITOR_LOCAL_NAMES]);
+const PARTICLE_LOCAL_NAMES = new Set(["element", "group", "any", ...COMPOSITOR_LOCAL_NAMES]);
+const SIMPLE_TYPE_VARIANT_LOCAL_NAMES = new Set(["restriction", "list", "union"]);
 const ATTRIBUTE_LOCAL_NAMES = new Set(["attribute"]);
 const FACET_LOCAL_NAMES = new Set([
   "enumeration",
@@ -92,11 +89,13 @@ function findContentContainer(complexTypeEl: Element): Element {
   return derivation ?? complexTypeEl;
 }
 
-function getOrCreateRestriction(doc: Document, simpleTypeEl: Element, allocator: PrefixAllocator): Element {
-  const existing = childElements(simpleTypeEl).find((c) => isXsd(c, "restriction"));
+/** Ensures `simpleTypeEl` has exactly one restriction/list/union child of `localName`, replacing
+ * whichever variant element is currently there if the model's variant was switched. */
+function getOrCreateSimpleTypeVariantChild(doc: Document, simpleTypeEl: Element, localName: "restriction" | "list" | "union", allocator: PrefixAllocator): Element {
+  const existing = childElements(simpleTypeEl).find((c) => isXsd(c, localName));
   if (existing) return existing;
-  const created = createXsdElement(doc, "restriction", allocator);
-  replaceManagedChildren(doc, simpleTypeEl, new Set(["restriction"]), [created]);
+  const created = createXsdElement(doc, localName, allocator);
+  replaceManagedChildren(doc, simpleTypeEl, SIMPLE_TYPE_VARIANT_LOCAL_NAMES, [created]);
   return created;
 }
 
@@ -214,6 +213,14 @@ function resolveOrSynthesizeParticle(doc: Document, id: NodeId, model: SchemaMod
       applyRefAttributes(el, node.ref, node.minOccurs, node.maxOccurs, allocator);
       return el;
     }
+    case "any": {
+      const el = existing ?? createXsdElement(doc, "any", allocator);
+      setOrRemoveAttr(el, "namespace", node.namespace);
+      setOrRemoveAttr(el, "processContents", node.processContents === "strict" ? null : node.processContents);
+      setOrRemoveAttr(el, "minOccurs", node.minOccurs === 1 ? null : occursToString(node.minOccurs));
+      setOrRemoveAttr(el, "maxOccurs", node.maxOccurs === 1 ? null : occursToString(node.maxOccurs));
+      return el;
+    }
     case "compositor": {
       const el = existing ?? createXsdElement(doc, node.compositor, allocator);
       patchNodeByKind(doc, el, node, model, allocator);
@@ -253,9 +260,17 @@ function patchNodeByKind(doc: Document, el: Element, node: SchemaNode, model: Sc
     }
     case "simpleType": {
       setOrRemoveAttr(el, "name", node.name);
-      const restrictionEl = getOrCreateRestriction(doc, el, allocator);
-      setOrRemoveAttr(restrictionEl, "base", node.baseRef ? serializeQName(node.baseRef.qname, allocator) : null);
-      patchFacets(doc, restrictionEl, node.facets, allocator);
+      if (node.variant === "list") {
+        const listEl = getOrCreateSimpleTypeVariantChild(doc, el, "list", allocator);
+        setOrRemoveAttr(listEl, "itemType", node.itemTypeRef ? serializeQName(node.itemTypeRef.qname, allocator) : null);
+      } else if (node.variant === "union") {
+        const unionEl = getOrCreateSimpleTypeVariantChild(doc, el, "union", allocator);
+        setOrRemoveAttr(unionEl, "memberTypes", node.memberTypeRefs.length > 0 ? node.memberTypeRefs.map((ref) => serializeQName(ref.qname, allocator)).join(" ") : null);
+      } else {
+        const restrictionEl = getOrCreateSimpleTypeVariantChild(doc, el, "restriction", allocator);
+        setOrRemoveAttr(restrictionEl, "base", node.baseRef ? serializeQName(node.baseRef.qname, allocator) : null);
+        patchFacets(doc, restrictionEl, node.facets, allocator);
+      }
       break;
     }
     case "group": {

@@ -1,4 +1,4 @@
-import type { AttributeDecl, ElementDecl, NodeId } from "@xsd-visualizer/core";
+import type { AnyNode, AttributeDecl, ElementDecl, NodeId } from "@xsd-visualizer/core";
 
 const XSD_STRING = { qname: { namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "string" }, resolvedTargetId: null };
 
@@ -18,6 +18,21 @@ export function makeDefaultElement(id: NodeId): ElementDecl {
     fixed: null,
     abstract: false,
     substitutionGroupRef: null
+  };
+}
+
+export function makeDefaultAny(id: NodeId): AnyNode {
+  return {
+    id,
+    kind: "any",
+    name: null,
+    namespaceURI: null,
+    annotation: null,
+    sourceRef: null,
+    namespace: "##any",
+    processContents: "strict",
+    minOccurs: 0,
+    maxOccurs: 1
   };
 }
 

@@ -3,7 +3,7 @@ import { loadSchemaFromString } from "../../src/parser/xsdLoader.js";
 import { serializeSchemaSet } from "../../src/serializer/xsdWriter.js";
 import { SetFieldCommand } from "../../src/commands/setFieldCommand.js";
 import { AddChildCommand, RemoveChildCommand, compositorParticles, complexTypeAttributes } from "../../src/commands/structuralCommands.js";
-import type { AttributeDecl, ComplexTypeDecl, CompositorNode, ElementDecl, SimpleTypeDecl } from "../../src/model/types.js";
+import type { AnyNode, AttributeDecl, ComplexTypeDecl, CompositorNode, ElementDecl, SimpleTypeDecl } from "../../src/model/types.js";
 import type { SchemaModel } from "../../src/model/schemaModel.js";
 
 function byName<T extends { name: string | null }>(model: SchemaModel, name: string): T {
@@ -154,5 +154,100 @@ describe("round-trip serialization", () => {
     const { model } = loadSchemaFromString(XML, "f1", "person.xsd");
     const [result] = serializeSchemaSet([{ fileId: "other-file", filePath: "other.xsd", xml: "<x/>" }], model);
     expect(result.xml).toBe("<x/>");
+  });
+
+  it("round-trips a xs:any wildcard's attributes edited in place", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+  <xs:complexType name="Extensible">
+    <xs:sequence>
+      <xs:element name="known" type="xs:string"/>
+      <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>
+`;
+    const { model } = loadSchemaFromString(xml, "f1", "any.xsd");
+    const type = byName<ComplexTypeDecl>(model, "Extensible");
+    const sequence = model.getNode(type.contentModelId!) as CompositorNode;
+    const wildcardId = sequence.particleIds[1];
+
+    const output = (() => {
+      new SetFieldCommand<AnyNode>(wildcardId, (n) => ({ ...n, namespace: "##any", processContents: "skip" }), "edit wildcard").apply(model);
+      const [result] = serializeSchemaSet([{ fileId: "f1", filePath: "any.xsd", xml }], model);
+      return result.xml;
+    })();
+
+    expect(output).toMatch(/<xs:any namespace="##any"[^>]*processContents="skip"[^>]*\/>/);
+    const { model: reparsed } = loadSchemaFromString(output, "f1", "any.xsd");
+    const reparsedType = byName<ComplexTypeDecl>(reparsed, "Extensible");
+    const reparsedSequence = reparsed.getNode(reparsedType.contentModelId!) as CompositorNode;
+    expect(reparsedSequence.particleIds).toHaveLength(2);
+  });
+
+  it("round-trips switching a simpleType from restriction to xs:list", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+  <xs:simpleType name="Tags">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="a"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>
+`;
+    const { model } = loadSchemaFromString(xml, "f1", "tags.xsd");
+    const output = (() => {
+      const tags = byName<SimpleTypeDecl>(model, "Tags");
+      new SetFieldCommand<SimpleTypeDecl>(
+        tags.id,
+        (n) => ({
+          ...n,
+          variant: "list",
+          baseRef: null,
+          itemTypeRef: { qname: { namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "string" }, resolvedTargetId: null }
+        }),
+        "switch to list"
+      ).apply(model);
+      const [result] = serializeSchemaSet([{ fileId: "f1", filePath: "tags.xsd", xml }], model);
+      return result.xml;
+    })();
+
+    expect(output).toContain('<xs:list itemType="xs:string"/>');
+    expect(output).not.toContain("xs:restriction");
+    const { model: reparsed } = loadSchemaFromString(output, "f1", "tags.xsd");
+    const reparsedTags = byName<SimpleTypeDecl>(reparsed, "Tags");
+    expect(reparsedTags.variant).toBe("list");
+  });
+
+  it("round-trips a xs:union's memberTypes", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+  <xs:simpleType name="IntOrString">
+    <xs:union memberTypes="xs:int"/>
+  </xs:simpleType>
+</xs:schema>
+`;
+    const { model } = loadSchemaFromString(xml, "f1", "union.xsd");
+    const output = (() => {
+      const u = byName<SimpleTypeDecl>(model, "IntOrString");
+      new SetFieldCommand<SimpleTypeDecl>(
+        u.id,
+        (n) => ({
+          ...n,
+          memberTypeRefs: [
+            { qname: { namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "int" }, resolvedTargetId: null },
+            { qname: { namespaceURI: "http://www.w3.org/2001/XMLSchema", localName: "string" }, resolvedTargetId: null }
+          ]
+        }),
+        "add member type"
+      ).apply(model);
+      const [result] = serializeSchemaSet([{ fileId: "f1", filePath: "union.xsd", xml }], model);
+      return result.xml;
+    })();
+
+    expect(output).toContain('memberTypes="xs:int xs:string"');
+    const { model: reparsed } = loadSchemaFromString(output, "f1", "union.xsd");
+    const reparsedUnion = byName<SimpleTypeDecl>(reparsed, "IntOrString");
+    expect(reparsedUnion.memberTypeRefs).toHaveLength(2);
   });
 });

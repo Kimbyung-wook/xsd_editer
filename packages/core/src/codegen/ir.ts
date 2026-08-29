@@ -73,6 +73,13 @@ interface BuildCtx {
   extraEnums: IrEnum[];
 }
 
+/** A resolved field type plus whether resolving it forces the owning field to become repeated
+ *  (true only for a reference to a `xs:list` simpleType — the list's items become array elements). */
+interface ResolvedFieldType {
+  fieldType: IrFieldType;
+  forcesRepeated: boolean;
+}
+
 function resolveSimpleTypeBasePrimitive(model: SchemaModel, simpleTypeId: NodeId, warnings: CodegenWarning[], visited: Set<NodeId>): IrPrimitiveKind {
   if (visited.has(simpleTypeId)) {
     warnings.push({ nodeId: simpleTypeId, message: "simpleType 기반 타입 체인에 순환 참조가 있어 string으로 대체합니다." });
@@ -81,8 +88,22 @@ function resolveSimpleTypeBasePrimitive(model: SchemaModel, simpleTypeId: NodeId
   visited.add(simpleTypeId);
   const node = model.getNode(simpleTypeId) as SimpleTypeDecl | undefined;
   if (!node) return "string";
+
+  if (node.variant === "union") {
+    warnings.push({ nodeId: simpleTypeId, message: `union simpleType은 멤버 타입을 구분하지 않고 string으로 표현됩니다: ${node.name ?? "(익명)"}` });
+    return "string";
+  }
+  if (node.variant === "list") {
+    // Reached only for a list-of-list edge case or an anonymous list type resolved outside
+    // resolveFieldTypeInfo's normal repeated-field path — the outer "repeated"-ness is lost here
+    // (documented simplification); the item's own primitive is still resolved correctly.
+    if (!node.itemTypeRef) return "string";
+    if (node.itemTypeRef.qname.namespaceURI === XSD_NAMESPACE) return mapXsdBuiltinToPrimitive(node.itemTypeRef.qname.localName);
+    const itemId = model.findByQName("simpleType", node.itemTypeRef.qname);
+    return itemId !== undefined ? resolveSimpleTypeBasePrimitive(model, itemId, warnings, visited) : "string";
+  }
   if (!node.baseRef) {
-    warnings.push({ nodeId: simpleTypeId, message: `union/list 파생 simpleType은 지원되지 않아 string으로 대체합니다: ${node.name ?? "(익명)"}` });
+    warnings.push({ nodeId: simpleTypeId, message: `기반 타입이 없어 string으로 대체합니다: ${node.name ?? "(익명)"}` });
     return "string";
   }
   const baseQName = node.baseRef.qname;
@@ -97,40 +118,71 @@ function resolveSimpleTypeBasePrimitive(model: SchemaModel, simpleTypeId: NodeId
   return resolveSimpleTypeBasePrimitive(model, baseId, warnings, visited);
 }
 
-function resolveFieldType(typeRef: QNameRef | NodeId | null, namePrefix: string, ctx: BuildCtx): IrFieldType {
+/** Resolves a `xs:list` itemType attribute value to the field type its items should use. */
+function resolveListItemFieldType(itemTypeRef: QNameRef, ctx: BuildCtx): IrFieldType {
+  const { model } = ctx;
+  const qname = itemTypeRef.qname;
+  if (qname.namespaceURI === XSD_NAMESPACE) {
+    return { kind: "primitive", primitive: mapXsdBuiltinToPrimitive(qname.localName) };
+  }
+  const simpleTypeId = model.findByQName("simpleType", qname);
+  if (simpleTypeId !== undefined) {
+    const enumName = ctx.simpleTypeEnumNames.get(simpleTypeId);
+    if (enumName) return { kind: "enum", enumName };
+    return { kind: "primitive", primitive: resolveSimpleTypeBasePrimitive(model, simpleTypeId, ctx.warnings, new Set()) };
+  }
+  ctx.warnings.push({ message: `list itemType을 찾을 수 없어 string으로 대체합니다: ${qname.localName}` });
+  return { kind: "primitive", primitive: "string" };
+}
+
+function resolveFieldTypeInfo(typeRef: QNameRef | NodeId | null, namePrefix: string, ctx: BuildCtx): ResolvedFieldType {
   const { model } = ctx;
   if (typeRef === null) {
     ctx.warnings.push({ message: `타입이 지정되지 않아 string으로 대체합니다: ${namePrefix}` });
-    return { kind: "primitive", primitive: "string" };
+    return { fieldType: { kind: "primitive", primitive: "string" }, forcesRepeated: false };
   }
 
   if (typeof typeRef === "object") {
     const qname = typeRef.qname;
     if (qname.namespaceURI === XSD_NAMESPACE) {
-      return { kind: "primitive", primitive: mapXsdBuiltinToPrimitive(qname.localName) };
+      return { fieldType: { kind: "primitive", primitive: mapXsdBuiltinToPrimitive(qname.localName) }, forcesRepeated: false };
     }
     const complexTypeId = model.findByQName("complexType", qname);
     if (complexTypeId !== undefined) {
       const structName = ctx.complexTypeStructNames.get(complexTypeId);
-      if (structName) return { kind: "struct", structName };
+      if (structName) return { fieldType: { kind: "struct", structName }, forcesRepeated: false };
     }
     const simpleTypeId = model.findByQName("simpleType", qname);
     if (simpleTypeId !== undefined) {
+      const simpleTypeNode = model.getNode(simpleTypeId) as SimpleTypeDecl;
+      if (simpleTypeNode.variant === "list") {
+        const itemFieldType = simpleTypeNode.itemTypeRef
+          ? resolveListItemFieldType(simpleTypeNode.itemTypeRef, ctx)
+          : (ctx.warnings.push({ nodeId: simpleTypeId, message: `list itemType이 지정되지 않아 string으로 대체합니다: ${simpleTypeNode.name ?? "(익명)"}` }),
+             { kind: "primitive", primitive: "string" } as IrFieldType);
+        return { fieldType: itemFieldType, forcesRepeated: true };
+      }
       const enumName = ctx.simpleTypeEnumNames.get(simpleTypeId);
-      if (enumName) return { kind: "enum", enumName };
-      return { kind: "primitive", primitive: resolveSimpleTypeBasePrimitive(model, simpleTypeId, ctx.warnings, new Set()) };
+      if (enumName) return { fieldType: { kind: "enum", enumName }, forcesRepeated: false };
+      return { fieldType: { kind: "primitive", primitive: resolveSimpleTypeBasePrimitive(model, simpleTypeId, ctx.warnings, new Set()) }, forcesRepeated: false };
     }
     ctx.warnings.push({ message: `참조된 타입을 찾을 수 없어 string으로 대체합니다: ${qname.namespaceURI ? `{${qname.namespaceURI}}` : ""}${qname.localName}` });
-    return { kind: "primitive", primitive: "string" };
+    return { fieldType: { kind: "primitive", primitive: "string" }, forcesRepeated: false };
   }
 
   // Anonymous inline type: typeRef is the NodeId of a synthesized simpleType/complexType node.
   const inlineNode = model.getNode(typeRef);
   if (!inlineNode) {
     ctx.warnings.push({ message: `인라인 타입을 찾을 수 없어 string으로 대체합니다: ${namePrefix}` });
-    return { kind: "primitive", primitive: "string" };
+    return { fieldType: { kind: "primitive", primitive: "string" }, forcesRepeated: false };
   }
   if (inlineNode.kind === "simpleType") {
+    if (inlineNode.variant === "list") {
+      const itemFieldType = inlineNode.itemTypeRef
+        ? resolveListItemFieldType(inlineNode.itemTypeRef, ctx)
+        : (ctx.warnings.push({ message: `list itemType이 지정되지 않아 string으로 대체합니다: ${namePrefix}` }), { kind: "primitive", primitive: "string" } as IrFieldType);
+      return { fieldType: itemFieldType, forcesRepeated: true };
+    }
     if (inlineNode.facets.enumeration && inlineNode.facets.enumeration.length > 0) {
       const enumName = ctx.uniqueName(toPascalCase(`${namePrefix}Enum`));
       ctx.extraEnums.push({
@@ -139,18 +191,18 @@ function resolveFieldType(typeRef: QNameRef | NodeId | null, namePrefix: string,
         docs: annotationToDocs(inlineNode.annotation),
         sourceNodeId: inlineNode.id
       });
-      return { kind: "enum", enumName };
+      return { fieldType: { kind: "enum", enumName }, forcesRepeated: false };
     }
-    return { kind: "primitive", primitive: resolveSimpleTypeBasePrimitive(model, inlineNode.id, ctx.warnings, new Set()) };
+    return { fieldType: { kind: "primitive", primitive: resolveSimpleTypeBasePrimitive(model, inlineNode.id, ctx.warnings, new Set()) }, forcesRepeated: false };
   }
   if (inlineNode.kind === "complexType") {
     const structName = ctx.uniqueName(toPascalCase(`${namePrefix}Type`));
     const struct = buildStruct(inlineNode, structName, ctx);
     ctx.extraStructs.push(struct);
-    return { kind: "struct", structName };
+    return { fieldType: { kind: "struct", structName }, forcesRepeated: false };
   }
   ctx.warnings.push({ message: `지원되지 않는 인라인 타입 종류(${inlineNode.kind})라 string으로 대체합니다: ${namePrefix}` });
-  return { kind: "primitive", primitive: "string" };
+  return { fieldType: { kind: "primitive", primitive: "string" }, forcesRepeated: false };
 }
 
 function collectAttributeIds(model: SchemaModel, directIds: NodeId[], groupRefs: QNameRef[], visitedGroups: Set<NodeId>): NodeId[] {
@@ -172,9 +224,9 @@ function buildStruct(complexType: ComplexTypeDecl, structName: string, ctx: Buil
 
   function addField(name: string, typeRef: QNameRef | NodeId | null, ownMin: number, forcedOptional: boolean, forcedRepeated: boolean, ownMax: number | "unbounded", annotation: Annotation | null, isAttribute: boolean): void {
     const optional = forcedOptional || ownMin === 0;
-    const repeated = forcedRepeated || ownMax === "unbounded" || (typeof ownMax === "number" && ownMax > 1);
-    const fieldType = resolveFieldType(typeRef, `${structName}_${name}`, ctx);
-    fields.push({ name, fieldType, optional, repeated, isAttribute, docs: annotationToDocs(annotation) });
+    const resolved = resolveFieldTypeInfo(typeRef, `${structName}_${name}`, ctx);
+    const repeated = forcedRepeated || resolved.forcesRepeated || ownMax === "unbounded" || (typeof ownMax === "number" && ownMax > 1);
+    fields.push({ name, fieldType: resolved.fieldType, optional, repeated, isAttribute, docs: annotationToDocs(annotation) });
   }
 
   function walk(particleId: NodeId, ancestorForcedOptional: boolean, ancestorForcedRepeated: boolean, visitedGroups: Set<NodeId>): void {
@@ -217,9 +269,16 @@ function buildStruct(complexType: ComplexTypeDecl, structName: string, ctx: Buil
         addField(node.name ?? "value", node.typeRef, node.minOccurs, ancestorForcedOptional, ancestorForcedRepeated, node.maxOccurs, node.annotation, false);
         break;
       }
+      case "any":
+        ctx.warnings.push({ nodeId: node.id, message: `${structName}: xs:any 와일드카드는 필드로 생성되지 않습니다.` });
+        break;
       default:
         break;
     }
+  }
+
+  if (complexType.mixed) {
+    ctx.warnings.push({ nodeId: complexType.id, message: `${structName}: mixed content의 텍스트 값은 필드로 생성되지 않고 자식 요소만 반영됩니다.` });
   }
 
   if (complexType.contentModelId) {

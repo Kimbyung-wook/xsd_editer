@@ -145,7 +145,7 @@ describe("buildCodegenIr", () => {
     }
   });
 
-  it("warns and falls back to string for a union/list simpleType (unmodeled)", () => {
+  it("maps a reference to a xs:list simpleType to a repeated field of the item type, with no warning", () => {
     const xml = `<?xml version="1.0"?>
       <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
                  xmlns:tns="urn:example"
@@ -164,7 +164,49 @@ describe("buildCodegenIr", () => {
     const doc = ir.structs.find((s) => s.name === "Doc");
     const tagsField = doc?.fields.find((f) => f.name === "tags");
     expect(tagsField?.fieldType).toEqual({ kind: "primitive", primitive: "string" });
-    expect(ir.warnings.some((w) => w.message.includes("union/list"))).toBe(true);
+    expect(tagsField?.repeated).toBe(true);
+    expect(ir.warnings).toEqual([]);
+  });
+
+  it("warns and falls back to string for a xs:union simpleType (member types not distinguished)", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                 xmlns:tns="urn:example"
+                 targetNamespace="urn:example">
+        <xs:simpleType name="IntOrString">
+          <xs:union memberTypes="xs:int xs:string"/>
+        </xs:simpleType>
+        <xs:complexType name="Doc">
+          <xs:sequence>
+            <xs:element name="value" type="tns:IntOrString"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "doc.xsd");
+    const ir = buildCodegenIr(model);
+    const doc = ir.structs.find((s) => s.name === "Doc");
+    const valueField = doc?.fields.find((f) => f.name === "value");
+    expect(valueField?.fieldType).toEqual({ kind: "primitive", primitive: "string" });
+    expect(valueField?.repeated).toBe(false);
+    expect(ir.warnings.some((w) => w.message.includes("union"))).toBe(true);
+  });
+
+  it("warns when a complexType has mixed content, and skips xs:any wildcard particles as fields", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
+        <xs:complexType name="Mixed" mixed="true">
+          <xs:sequence>
+            <xs:element name="note" type="xs:string"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "mixed.xsd");
+    const ir = buildCodegenIr(model);
+    const mixed = ir.structs.find((s) => s.name === "Mixed");
+    expect(mixed?.fields.map((f) => f.name)).toEqual(["note"]);
+    expect(ir.warnings.some((w) => w.message.includes("mixed content"))).toBe(true);
+    expect(ir.warnings.some((w) => w.message.includes("xs:any"))).toBe(true);
   });
 
   it("handles a self-referencing (recursive) complexType without infinite recursion", () => {

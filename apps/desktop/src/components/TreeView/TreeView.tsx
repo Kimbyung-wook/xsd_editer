@@ -4,7 +4,7 @@ import { AddChildCommand, RemoveChildCommand, SetFieldCommand, compositorParticl
 import type { CompositorNode, ComplexTypeDecl } from "@xsd-visualizer/core";
 import { useSchemaStore } from "../../state/schemaStore.js";
 import { buildTreeRows, type TreeRow } from "./treeAdapter.js";
-import { makeDefaultAttribute, makeDefaultElement } from "./nodeFactories.js";
+import { makeDefaultAny, makeDefaultAttribute, makeDefaultElement } from "./nodeFactories.js";
 import { TreeContextMenu, type ContextMenuAction } from "./TreeContextMenu.js";
 
 function useElementSize<T extends HTMLElement>() {
@@ -100,6 +100,16 @@ export function TreeView() {
         useSchemaStore
           .getState()
           .dispatch(new AddChildCommand<CompositorNode>(parentId, compositorParticles, "element", makeDefaultElement, null, "요소 추가"))
+    });
+  }
+  if (contextMenu?.row.canAddAny && contextMenu.row.nodeId) {
+    const parentId = contextMenu.row.nodeId;
+    menuActions.push({
+      label: "새 와일드카드(xs:any) 추가",
+      onSelect: () =>
+        useSchemaStore
+          .getState()
+          .dispatch(new AddChildCommand<CompositorNode>(parentId, compositorParticles, "any", makeDefaultAny, null, "와일드카드 추가"))
     });
   }
   if (contextMenu?.row.canAddAttribute && contextMenu.row.nodeId) {

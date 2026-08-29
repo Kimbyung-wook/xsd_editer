@@ -89,7 +89,15 @@ export function checkStructuralRules(model: SchemaModel): Diagnostic[] {
         }
         break;
       case "simpleType":
-        checkDangling(model, node.id, node.baseRef, (ref) => model.findByQName("simpleType", ref.qname), diagnostics);
+        if (node.variant === "list") {
+          checkDangling(model, node.id, node.itemTypeRef, (ref) => model.findByQName("simpleType", ref.qname), diagnostics);
+        } else if (node.variant === "union") {
+          for (const ref of node.memberTypeRefs) {
+            checkDangling(model, node.id, ref, (r) => model.findByQName("simpleType", r.qname), diagnostics);
+          }
+        } else {
+          checkDangling(model, node.id, node.baseRef, (ref) => model.findByQName("simpleType", ref.qname), diagnostics);
+        }
         break;
       case "attributeGroup":
         for (const ref of node.attributeGroupRefs) {
@@ -109,7 +117,7 @@ export function checkStructuralRules(model: SchemaModel): Diagnostic[] {
             const particle = model.getNode(particleId);
             if (
               particle &&
-              (particle.kind === "element" || particle.kind === "elementRef") &&
+              (particle.kind === "element" || particle.kind === "elementRef" || particle.kind === "any") &&
               particle.maxOccurs !== 1 &&
               particle.maxOccurs !== 0
             ) {

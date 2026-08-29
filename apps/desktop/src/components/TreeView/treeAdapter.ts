@@ -11,6 +11,8 @@ export interface TreeRow {
   editable: boolean;
   /** Whether "새 요소 추가" (add a compositor particle) applies to this row. */
   canAddElement: boolean;
+  /** Whether "새 와일드카드(xs:any) 추가" applies to this row. */
+  canAddAny: boolean;
   /** Whether "새 속성 추가" (add an attribute) applies to this row. */
   canAddAttribute: boolean;
   /** Present when this row can be removed from its parent's list — which list, and via which parent. */
@@ -40,7 +42,7 @@ function isInlineTypeRef(typeRef: NodeId | QNameRef | null): typeRef is NodeId {
 }
 
 function baseRow(id: string, nodeId: NodeId | null): Omit<TreeRow, "label" | "badge"> {
-  return { id, nodeId, editable: false, canAddElement: false, canAddAttribute: false, deleteTarget: null };
+  return { id, nodeId, editable: false, canAddElement: false, canAddAny: false, canAddAttribute: false, deleteTarget: null };
 }
 
 function refRow(prefix: string, ref: QNameRef, keyHint: string): TreeRow {
@@ -88,11 +90,19 @@ function buildRow(model: SchemaModel, id: NodeId): TreeRow {
         label: `group ref: ${qnameText(node.ref)}`,
         badge: occursBadge(node.minOccurs, node.maxOccurs)
       };
+    case "any":
+      return {
+        ...baseRow(id, id),
+        editable: false,
+        label: `any (namespace=${node.namespace ?? "##any"}, processContents=${node.processContents})`,
+        badge: occursBadge(node.minOccurs, node.maxOccurs)
+      };
     case "compositor": {
       const children = node.particleIds.map((particleId) => withDeleteTarget(buildRow(model, particleId), id, "particles"));
       return {
         ...baseRow(id, id),
         canAddElement: true,
+        canAddAny: true,
         label: node.compositor,
         badge: occursBadge(node.minOccurs, node.maxOccurs),
         children: children.length > 0 ? children : undefined
@@ -105,22 +115,32 @@ function buildRow(model: SchemaModel, id: NodeId): TreeRow {
         children.push(withDeleteTarget(buildRow(model, attrId), id, "attributes"));
       }
       for (const ref of node.attributeGroupRefs) children.push(refRow("attributeGroup", ref, id));
+      const badgeParts = [node.abstract ? "abstract" : null, node.mixed ? "mixed" : null].filter((p): p is string => p !== null);
       return {
         ...baseRow(id, id),
         editable: true,
         canAddAttribute: true,
         label: node.name ?? "(anonymous complexType)",
-        badge: node.abstract ? "abstract" : null,
+        badge: badgeParts.length > 0 ? badgeParts.join(", ") : null,
         children: children.length > 0 ? children : undefined
       };
     }
-    case "simpleType":
+    case "simpleType": {
+      const variantBadge =
+        node.variant === "list"
+          ? `list of ${node.itemTypeRef ? qnameText(node.itemTypeRef) : "?"}`
+          : node.variant === "union"
+            ? `union(${node.memberTypeRefs.length})`
+            : node.baseRef
+              ? qnameText(node.baseRef)
+              : null;
       return {
         ...baseRow(id, id),
         editable: true,
         label: node.name ?? "(anonymous simpleType)",
-        badge: node.baseRef ? qnameText(node.baseRef) : null
+        badge: variantBadge
       };
+    }
     case "group": {
       const children = node.contentModelId ? [buildRow(model, node.contentModelId)] : [];
       return {

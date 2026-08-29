@@ -85,6 +85,30 @@ describe("validateModel", () => {
     expect(diagnostics.some((d) => d.code === "invalid-length-range")).toBe(true);
   });
 
+  it("flags a dangling xs:list itemType reference", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="urn:example" targetNamespace="urn:example">
+        <xs:simpleType name="Tags">
+          <xs:list itemType="tns:DoesNotExist"/>
+        </xs:simpleType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "list.xsd");
+    const diagnostics = validateModel(model);
+    expect(diagnostics.some((d) => d.code === "dangling-reference")).toBe(true);
+  });
+
+  it("flags a dangling xs:union memberTypes reference but not a built-in member", () => {
+    const xml = `<?xml version="1.0"?>
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="urn:example" targetNamespace="urn:example">
+        <xs:simpleType name="U">
+          <xs:union memberTypes="xs:int tns:DoesNotExist"/>
+        </xs:simpleType>
+      </xs:schema>`;
+    const { model } = loadSchemaFromString(xml, "f1", "union.xsd");
+    const diagnostics = validateModel(model);
+    expect(diagnostics.filter((d) => d.code === "dangling-reference")).toHaveLength(1);
+  });
+
   it("flags an xs:all child with maxOccurs > 1", () => {
     const xml = `<?xml version="1.0"?>
       <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example">
